@@ -4,6 +4,7 @@ members = [
     "egui_demo_app",
     "egui_demo_lib",
     "egui_extras",
+    "egui-sdl2",
     "egui_glium",
     "egui_glow",
     "egui-wgpu",
@@ -12,6 +13,7 @@ members = [
     "emath",
     "epaint",
 
+    "examples/hello_sdl2_wgpu",
     "examples/confirm_exit",
     "examples/custom_3d_glow",
     "examples/custom_3d_three-d",

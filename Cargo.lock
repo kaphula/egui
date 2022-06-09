@@ -1161,6 +1161,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui-sdl2"
+version = "0.1.0"
+dependencies = [
+ "egui-wgpu",
+ "sdl2",
+]
+
+[[package]]
 name = "egui-wgpu"
 version = "0.18.0"
 dependencies = [
@@ -1861,6 +1869,17 @@ name = "heck"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
+
+[[package]]
+name = "hello_sdl2_wgpu"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "egui-sdl2",
+ "pollster",
+ "sdl2",
+ "wgpu",
+]
 
 [[package]]
 name = "hello_world"
@@ -3168,6 +3187,31 @@ checksum = "d53dcdb7c9f8158937a7981b48accfd39a43af418591a5d008c7b22b5e1b7ca4"
 dependencies = [
  "ring",
  "untrusted",
+]
+
+[[package]]
+name = "sdl2"
+version = "0.35.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7959277b623f1fb9e04aea73686c3ca52f01b2145f8ea16f4ff30d8b7623b1a"
+dependencies = [
+ "bitflags",
+ "lazy_static",
+ "libc",
+ "raw-window-handle",
+ "sdl2-sys",
+]
+
+[[package]]
+name = "sdl2-sys"
+version = "0.35.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3586be2cf6c0a8099a79a12b4084357aa9b3e0b0d7980e3b67aaf7a9d55f9f0"
+dependencies = [
+ "cfg-if 1.0.0",
+ "libc",
+ "pkg-config",
+ "version-compare",
 ]
 
 [[package]]

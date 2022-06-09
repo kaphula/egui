@@ -1,0 +1,17 @@
+[package]
+name = "hello_sdl2_wgpu"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# egui = { path = "../../egui" }
+sdl2 = {version= "0.35.2", features = ["raw-window-handle", "static-link", "use-pkgconfig"] }
+egui-sdl2 = { path = "../../egui-sdl2" }
+egui = { path = "../../egui" }
+wgpu = "0.12.0"
+pollster = "0.2.5"
+
+
+
