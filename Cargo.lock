@@ -1876,6 +1876,7 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "egui-sdl2",
+ "egui-wgpu",
  "pollster",
  "sdl2",
  "wgpu",
