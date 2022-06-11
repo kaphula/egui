@@ -8,7 +8,8 @@ use sdl2::video::Window;
 use wgpu::{Backend, Device, Queue, Surface, SurfaceConfiguration};
 
 // use chrono::Timelike;
-use egui::{FontDefinitions, Modifiers, Pos2, RawInput};
+use egui::{Context, FontDefinitions, FullOutput, Modifiers, Pos2, RawInput, Rect, Rgba};
+use egui::CursorIcon::Default;
 use egui::mutex::RwLock;
 use egui_wgpu::renderer;
 use egui_wgpu::renderer::RenderPass;
@@ -219,6 +220,30 @@ fn main() {
     let sys = init_sdl(INITIAL_WIDTH, INITIAL_HEIGHT);
     let mut event_pump = sys.sdl_context.event_pump().expect("Cannot create SDL2 event pump");
 
+    let mut egui_ctx = egui::Context::default();
+
+    let mut egui_rpass = Arc::new(RwLock::new(RenderPass::new(&sys.device, sys.surface_config.format, 1)));
+
+
+    //let scale = match scale {
+    //    DpiScaling::Default => 96.0 / window.subsystem().display_dpi(0).unwrap().0,
+    //    DpiScaling::Custom(custom) => {
+    //        (96.0 / window.subsystem().display_dpi(0).unwrap().0) * custom
+    //    }
+    //};
+    let scale = 96.0 / sys.sdl_window.subsystem().display_dpi(0).unwrap().0; // ddpi
+    // println!("scale: {}", scale);
+
+
+    let rect = egui::vec2(INITIAL_WIDTH as f32, INITIAL_HEIGHT as f32) / scale;
+    // let rect = egui::vec2(INITIAL_WIDTH as f32, INITIAL_HEIGHT as f32);
+    let screen_rect = Rect::from_min_size(Pos2::new(0f32, 0f32), rect);
+    let raw = RawInput {
+        screen_rect: Some(screen_rect),
+        pixels_per_point: Some(1.0),
+        ..RawInput::default()
+    };
+
     'running: loop {
         for event in event_pump.poll_iter() {
             match &event {
@@ -233,21 +258,30 @@ fn main() {
                 }
             }
         }
+
+        egui_ctx.begin_frame(raw.clone());
+
+        egui::Window::new("Settings").resizable(true).show(&egui_ctx, |ui| {
+            ui.label("Welcome!");
+        });
+
+        let full_output: FullOutput = egui_ctx.end_frame();
+
+        let tris = egui_ctx.tessellate(full_output.shapes);
+        if (full_output.needs_repaint) {
+            paint_and_update_textures(&sys, egui_rpass.clone(), raw.pixels_per_point.unwrap(), Rgba::from_rgb(0.0,0.0,0.0), &tris, &full_output.textures_delta)
+            //let mut rpass = egui_rpass.write();
+            //for (id, image_delta) in &full_output.textures_delta.set {
+            //    rpass.update_texture(&wgpu_sdl2_app.device, &wgpu_sdl2_app.queue, *id, image_delta);
+            //}
+        }
+
+
+
     }
 
     // EGUI_CONTEXT --> FullOutput -->  egui_rpass.update_texture
 
-    let mut egui_ctx = egui::Context::default();
-
-    let full_output = egui_ctx.end_frame();
-
-    full_output.textures_delta;
-
-    // We use the egui_wgpu_backend crate as the render backend.
-    // let mut egui_rpass2 = RenderPass::new(&sys.device, surface_format, 1);
-    // let rwlock: RwLock<RenderPass> = egui_rpass2.into();
-
-    let mut egui_rpass = Arc::new(RwLock::new(RenderPass::new(&sys.device, sys.surface_config.format, 1)));
 
 
     // paint_and_update_textures(&sys, egui_rpass)
