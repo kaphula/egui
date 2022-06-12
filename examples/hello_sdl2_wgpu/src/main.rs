@@ -1,3 +1,5 @@
+mod frame_timer;
+
 use std::iter;
 use std::sync::Arc;
 use std::time::Instant;
@@ -15,6 +17,7 @@ use egui::{Context, FontDefinitions, FullOutput, Key, Modifiers, PointerButton, 
 use egui::mutex::RwLock;
 use egui_wgpu::renderer;
 use egui_wgpu::renderer::RenderPass;
+use crate::frame_timer::FrameTimer;
 
 // use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 const INITIAL_WIDTH: u32 = 800;
@@ -149,22 +152,11 @@ fn init_sdl(width: u32, height: u32) -> WGPUSDL2 {
 fn paint_and_update_textures(
     wgpu_sdl2_app: &WGPUSDL2,
     egui_rpass: Arc<RwLock<RenderPass>>,
-    // surface: &Surface,
-    // surface_configuration: &SurfaceConfiguration,
     pixels_per_point: f32,
     clear_color: egui::Rgba,
     clipped_primitives: &[egui::ClippedPrimitive],
     textures_delta: &egui::TexturesDelta,
 ) {
-    //let render_state = match self.render_state.as_mut() {
-    //    Some(rs) => rs,
-    //    None => return,
-    //};
-    //let surface_state = match self.surface_state.as_ref() {
-    //    Some(rs) => rs,
-    //    None => return,
-    //};
-
     let output_frame = match wgpu_sdl2_app.surface.get_current_texture() {
         Ok(frame) => frame,
         Err(wgpu::SurfaceError::Outdated) => {
@@ -174,7 +166,6 @@ fn paint_and_update_textures(
             return;
         }
         Err(e) => {
-            // tracing::warn!("Dropped frame with error: {e}");
             return;
         }
     };
@@ -269,7 +260,7 @@ pub fn input_to_egui(
         },
         MouseButtonDown { mouse_btn, .. } => {
             if let Some(pressed) = sdl_button_to_egui(mouse_btn) {
-
+                println!("press event!");
                 egui_sdl2_state.raw_input.events.push(egui::Event::PointerButton {
                     pos: egui_sdl2_state.mouse_pointer_position,
                     button: pressed,
@@ -484,6 +475,11 @@ impl EguiSDL2State {
         self.raw_input.screen_rect = Some(Rect::from_min_size(Pos2::new(0f32, 0f32), rect));
     }
 
+    fn update_time(&mut self, running_time: Option<f64>, delta: f32) {
+        self.raw_input.time = running_time;
+        self.raw_input.predicted_dt = delta;
+    }
+
     fn new(width: u32, height: u32, default_dpi: f32, display_diagonal_dpi: f32, dpi_scaling: f32) -> Self {
         let scale = default_dpi / display_diagonal_dpi;
         let rect = (egui::vec2(width as f32, height as f32) / scale) * dpi_scaling;
@@ -556,11 +552,20 @@ fn main() {
     let mut egui_ctx = egui::Context::default();
     let mut egui_rpass = Arc::new(RwLock::new(RenderPass::new(&sys.device, sys.surface_config.format, 1)));
 
+    let mut frame_timer = FrameTimer::new();
+
     let ddpi = sys.sdl_window.subsystem().display_dpi(0).unwrap().0;
     let mut egui_sdl2_state = EguiSDL2State::new(INITIAL_WIDTH, INITIAL_HEIGHT, 96.0, ddpi, 1.0);
 
+    let mut running_time: f64 = 0.0;
     let mut checkbox1_checked = false;
     'running: loop {
+        frame_timer.time_start();
+        let delta = frame_timer.delta();
+        running_time += delta as f64;
+
+        egui_sdl2_state.update_time(Some(running_time), delta);
+
         for event in event_pump.poll_iter() {
             match &event {
                 Event::Quit { .. }
@@ -590,10 +595,35 @@ fn main() {
             input_to_egui(&sys.sdl_window, &event, &mut egui_sdl2_state)
         }
 
-        // println!("num e before: {}", egui_sdl2_state.raw_input.events.len());
-        // let raw_clone = ;
-        egui_ctx.begin_frame(egui_sdl2_state.raw_input.take());
-        // println!("num e after: {}", egui_sdl2_state.raw_input.events.len());
+        // egui_ctx.input().
+        let full_output = egui_ctx.run(egui_sdl2_state.raw_input.take(), |ctx| {
+            egui::Window::new("Settings").resizable(true).vscroll(true).show(&ctx, |ui| {
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+                ui.label("Welcome!");
+
+                if ui.button("Press me").clicked() {
+                    println!("you pressed me!")
+                }
+                ui.checkbox(&mut checkbox1_checked, "checkbox1");
+                ui.end_row();
+            });
+
+        });
+/*        egui_ctx.begin_frame(egui_sdl2_state.raw_input.take());
 
         egui::Window::new("Settings").resizable(true).vscroll(true).show(&egui_ctx, |ui| {
             ui.label("Welcome!");
@@ -613,18 +643,21 @@ fn main() {
             ui.label("Welcome!");
             ui.label("Welcome!");
 
-            if ui.button("HEllo").clicked() {
-                println!("yo!")
+            if ui.button("Press me").clicked() {
+                println!("you pressed me!")
             }
             ui.checkbox(&mut checkbox1_checked, "checkbox1");
             ui.end_row();
         });
 
         let full_output: FullOutput = egui_ctx.end_frame();
+*/
+
         egui_sdl2_state.process_output(&sys.sdl_window, &full_output.platform_output);
         let tris = egui_ctx.tessellate(full_output.shapes);
         if (full_output.needs_repaint) {
             paint_and_update_textures(&sys, egui_rpass.clone(), egui_sdl2_state.dpi_scaling, Rgba::from_rgb(0.0,0.0,0.0), &tris, &full_output.textures_delta)
         }
+        frame_timer.time_stop()
     }
 }
