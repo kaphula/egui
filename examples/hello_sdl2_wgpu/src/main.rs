@@ -623,35 +623,6 @@ fn main() {
             });
 
         });
-/*        egui_ctx.begin_frame(egui_sdl2_state.raw_input.take());
-
-        egui::Window::new("Settings").resizable(true).vscroll(true).show(&egui_ctx, |ui| {
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-            ui.label("Welcome!");
-
-            if ui.button("Press me").clicked() {
-                println!("you pressed me!")
-            }
-            ui.checkbox(&mut checkbox1_checked, "checkbox1");
-            ui.end_row();
-        });
-
-        let full_output: FullOutput = egui_ctx.end_frame();
-*/
 
         egui_sdl2_state.process_output(&sys.sdl_window, &full_output.platform_output);
         let tris = egui_ctx.tessellate(full_output.shapes);
