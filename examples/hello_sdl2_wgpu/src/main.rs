@@ -4,13 +4,14 @@ use std::time::Instant;
 use sdl2::{Sdl, VideoSubsystem};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::{Keycode, Mod};
-use sdl2::mouse::MouseButton;
+use sdl2::mouse::{Cursor, MouseButton, SystemCursor};
 use sdl2::video::Window;
 use wgpu::{Backend, Device, Queue, Surface, SurfaceConfiguration};
+use core::default::Default;
 
 // use chrono::Timelike;
-use egui::{Context, FontDefinitions, FullOutput, Key, Modifiers, Pos2, RawInput, Rect, Rgba};
-use egui::CursorIcon::Default;
+use egui::{Context, FontDefinitions, FullOutput, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Rgba};
+// use egui::CursorIcon::Default;
 use egui::mutex::RwLock;
 use egui_wgpu::renderer;
 use egui_wgpu::renderer::RenderPass;
@@ -34,6 +35,25 @@ const INITIAL_HEIGHT: u32 = 600;
 //     }
 // }
 
+pub struct FusedCursor {
+    pub cursor: sdl2::mouse::Cursor,
+    pub icon: sdl2::mouse::SystemCursor,
+}
+
+impl FusedCursor {
+    pub fn new() -> Self {
+        Self {
+            cursor: sdl2::mouse::Cursor::from_system(sdl2::mouse::SystemCursor::Arrow).unwrap(),
+            icon: sdl2::mouse::SystemCursor::Arrow,
+        }
+    }
+}
+
+impl Default for FusedCursor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 struct WGPUSDL2 {
     sdl_window: Window,
@@ -221,33 +241,34 @@ pub fn input_to_egui(
     event: &sdl2::event::Event,
     egui_sdl2_state: &mut EguiSDL2State,
 ) {
-    use sdl2::event::Event::*;
 
-    let pixels_per_point = egui_sdl2_state.raw_input.pixels_per_point.unwrap();
+
+    fn sdl_button_to_egui(btn: &MouseButton) -> Option<PointerButton> {
+        match btn {
+            MouseButton::Left => Some(egui::PointerButton::Primary),
+            MouseButton::Middle => Some(egui::PointerButton::Middle),
+            MouseButton::Right => Some(egui::PointerButton::Secondary),
+            _ => None,
+        }
+    }
+
+    use sdl2::event::Event::*;
+    let pixels_per_point = egui_sdl2_state.dpi_scaling;
     if event.get_window_id() != Some(window.id()) {
         return;
     }
     match event {
         // handle when window Resized and SizeChanged.
         Window { win_event, .. } => match win_event {
-            WindowEvent::Resized(_, _) | sdl2::event::WindowEvent::SizeChanged(_, _) => {
-                let drs = window.drawable_size();
-                egui_sdl2_state.update_screen_rect(drs.0, drs.1);
-                // painter.update_screen_rect();
-                // state.input.screen_rect = Some(painter.screen_rect);
+            WindowEvent::Resized(x, y) | sdl2::event::WindowEvent::SizeChanged(x, y) => {
+                // let drs = window.drawable_size(); // ??
+                // egui_sdl2_state.update_screen_rect(drs.0, drs.1, &window);
+                egui_sdl2_state.update_screen_rect(*x as u32, *y as u32, &window);
             }
             _ => (),
         },
-
-        //MouseButonLeft pressed is the only one needed by egui
         MouseButtonDown { mouse_btn, .. } => {
-            let mouse_btn = match mouse_btn {
-                MouseButton::Left => Some(egui::PointerButton::Primary),
-                MouseButton::Middle => Some(egui::PointerButton::Middle),
-                MouseButton::Right => Some(egui::PointerButton::Secondary),
-                _ => None,
-            };
-            if let Some(pressed) = mouse_btn {
+            if let Some(pressed) = sdl_button_to_egui(mouse_btn) {
 
                 egui_sdl2_state.raw_input.events.push(egui::Event::PointerButton {
                     pos: egui_sdl2_state.mouse_pointer_position,
@@ -255,25 +276,10 @@ pub fn input_to_egui(
                     pressed: true,
                     modifiers: egui_sdl2_state.modifiers,
                 });
-
-                //state.input.events.push(egui::Event::PointerButton {
-                //    pos: state.pointer_pos,
-                //    button: pressed,
-                //    pressed: true,
-                //    modifiers: state.modifiers,
-                //});
             }
         }
-
-        //MouseButonLeft pressed is the only one needed by egui
         MouseButtonUp { mouse_btn, .. } => {
-            let mouse_btn = match mouse_btn {
-                MouseButton::Left => Some(egui::PointerButton::Primary),
-                MouseButton::Middle => Some(egui::PointerButton::Middle),
-                MouseButton::Right => Some(egui::PointerButton::Secondary),
-                _ => None,
-            };
-            if let Some(released) = mouse_btn {
+            if let Some(released) = sdl_button_to_egui(mouse_btn) {
                 egui_sdl2_state.raw_input.events.push(egui::Event::PointerButton {
                     pos: egui_sdl2_state.mouse_pointer_position,
                     button: released,
@@ -281,14 +287,6 @@ pub fn input_to_egui(
                     modifiers: egui_sdl2_state.modifiers,
                 });
             }
-            //if let Some(released) = mouse_btn {
-            //    state.input.events.push(egui::Event::PointerButton {
-            //        pos: state.pointer_pos,
-            //        button: released,
-            //        pressed: false,
-            //        modifiers: state.modifiers,
-            //    });
-            //}
         }
 
         MouseMotion { x, y, .. } => {
@@ -377,23 +375,28 @@ pub fn input_to_egui(
         TextInput { text, .. } => {
             egui_sdl2_state.raw_input.events.push(egui::Event::Text(text.clone()));
         }
-        // todo: mousewheel
-/*
         MouseWheel { x, y, .. } => {
-            let delta = egui::vec2(x as f32 * 8.0, y as f32 * 8.0);
+            let delta = egui::vec2(*x as f32 * 8.0, *y as f32 * 8.0);
             let sdl = window.subsystem().sdl();
+            // zoom:
             if sdl.keyboard().mod_state() & Mod::LCTRLMOD == Mod::LCTRLMOD
                 || sdl.keyboard().mod_state() & Mod::RCTRLMOD == Mod::RCTRLMOD
             {
-                egui_sdl2_state.raw_input.
-                state.input.zoom_delta *= (delta.y / 125.0).exp();
+                let zoom_delta = (delta.y / 125.0).exp();
+                egui_sdl2_state.raw_input.events.push(egui::Event::Zoom(zoom_delta));
+            }
+            // horizontal scroll:
+            else if sdl.keyboard().mod_state() & Mod::LSHIFTMOD == Mod::LSHIFTMOD
+                || sdl.keyboard().mod_state() & Mod::RSHIFTMOD == Mod::RSHIFTMOD
+            {
+                egui_sdl2_state.raw_input.events
+                    .push(egui::Event::Scroll(egui::vec2(delta.x + delta.y, 0.0)));
+            // regular scroll:
             } else {
-                state.input.scroll_delta = delta;
+                egui_sdl2_state.raw_input.events.push(egui::Event::Scroll(egui::vec2(delta.x, delta.y)));
             }
         }
-*/
         _ => {
-            //dbg!(event);
         }
     }
 }
@@ -467,14 +470,17 @@ pub fn translate_virtual_key_code(key: sdl2::keyboard::Keycode) -> Option<egui::
 pub struct EguiSDL2State {
     raw_input: RawInput,
     modifiers: Modifiers,
-    display_diagonal_dpi: f32,
     dpi_scaling: f32,
-    mouse_pointer_position: egui::Pos2
+    default_dpi: f32,
+    mouse_pointer_position: egui::Pos2,
+    pub fused_cursor: FusedCursor,
 }
 
 impl EguiSDL2State {
-    fn update_screen_rect(&mut self, width: u32, height: u32) {
-        let rect = (egui::vec2(width as f32, height as f32) / self.display_diagonal_dpi) * self.raw_input.pixels_per_point.unwrap();
+    fn update_screen_rect(&mut self, width: u32, height: u32, window: &Window) {
+        let ddpi = window.subsystem().display_dpi(0).unwrap().0;
+        let scale = self.default_dpi / ddpi;
+        let rect = (egui::vec2(width as f32, height as f32) / scale) * self.dpi_scaling;
         self.raw_input.screen_rect = Some(Rect::from_min_size(Pos2::new(0f32, 0f32), rect));
     }
 
@@ -489,350 +495,17 @@ impl EguiSDL2State {
         };
 
         let modifiers = Modifiers::default();
-        Self {
+        EguiSDL2State {
             raw_input: raw_input,
             modifiers: modifiers,
-            display_diagonal_dpi: display_diagonal_dpi,
             dpi_scaling: dpi_scaling,
-            mouse_pointer_position: egui::Pos2::new(0.0,0.0)
+            default_dpi: default_dpi,
+            mouse_pointer_position: egui::Pos2::new(0.0,0.0),
+            fused_cursor: FusedCursor::new()
         }
     }
 
-}
-
-/// A simple egui + wgpu + winit based example.
-fn main() {
-
-    let sys = init_sdl(INITIAL_WIDTH, INITIAL_HEIGHT);
-    let mut event_pump = sys.sdl_context.event_pump().expect("Cannot create SDL2 event pump");
-
-    let mut egui_ctx = egui::Context::default();
-    let mut egui_rpass = Arc::new(RwLock::new(RenderPass::new(&sys.device, sys.surface_config.format, 1)));
-
-
-    //let scale = match scale {
-    //    DpiScaling::Default => 96.0 / window.subsystem().display_dpi(0).unwrap().0,
-    //    DpiScaling::Custom(custom) => {
-    //        (96.0 / window.subsystem().display_dpi(0).unwrap().0) * custom
-    //    }
-    //};
-    // let scale = 96.0 / sys.sdl_window.subsystem().display_dpi(0).unwrap().0; // ddpi
-
-    let ddpi = sys.sdl_window.subsystem().display_dpi(0).unwrap().0;
-    let mut egui_sdl2_state = EguiSDL2State::new(INITIAL_WIDTH, INITIAL_HEIGHT, 96.0, ddpi, 1.0);
-/*
-    let rect = egui::vec2(INITIAL_WIDTH as f32, INITIAL_HEIGHT as f32) / scale;
-    let screen_rect = Rect::from_min_size(Pos2::new(0f32, 0f32), rect);
-    let raw = RawInput {
-        screen_rect: Some(screen_rect),
-        pixels_per_point: Some(1.0),
-        ..RawInput::default()
-    };
-*/
-    'running: loop {
-        for event in event_pump.poll_iter() {
-            match &event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => {
-                    break 'running;
-                }
-                e => { // dbg!(e); }
-                }
-            }
-
-            input_to_egui(&sys.sdl_window, &event, &mut egui_sdl2_state)
-        }
-
-        // egui_ctx.begin_frame(raw.clone());
-        let raw_clone = egui_sdl2_state.raw_input.take();
-        egui_ctx.begin_frame(raw_clone);
-
-        egui::Window::new("Settings").resizable(true).show(&egui_ctx, |ui| {
-            ui.label("Welcome!");
-        });
-
-        let full_output: FullOutput = egui_ctx.end_frame();
-
-        let tris = egui_ctx.tessellate(full_output.shapes);
-        if (full_output.needs_repaint) {
-            paint_and_update_textures(&sys, egui_rpass.clone(), egui_sdl2_state.raw_input.pixels_per_point.unwrap(), Rgba::from_rgb(0.0,0.0,0.0), &tris, &full_output.textures_delta)
-            //let mut rpass = egui_rpass.write();
-            //for (id, image_delta) in &full_output.textures_delta.set {
-            //    rpass.update_texture(&wgpu_sdl2_app.device, &wgpu_sdl2_app.queue, *id, image_delta);
-            //}
-        }
-
-
-
-    }
-
-    // EGUI_CONTEXT --> FullOutput -->  egui_rpass.update_texture
-
-
-
-    // paint_and_update_textures(&sys, egui_rpass)
-
-    // Display the demo application that ships with egui.
-    // let mut demo_app = egui_demo_lib::WrapApp::default();
-    //egui_rpass.update_texture(&device, &queue, &platform.context().font_image());
-    //egui_rpass.update_user_textures(&device, &queue);
-    //egui_rpass.update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
-
-
-
-    /*    let event_loop = winit::event_loop::EventLoop::with_user_event();
-        let window = winit::window::WindowBuilder::new()
-            .with_decorations(true)
-            .with_resizable(true)
-            .with_transparent(false)
-            .with_title("egui-wgpu_winit example")
-            .with_inner_size(winit::dpi::PhysicalSize {
-                width: INITIAL_WIDTH,
-                height: INITIAL_HEIGHT,
-            })
-            .build(&event_loop)
-            .unwrap();
-
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-        let surface = unsafe { instance.create_surface(&window) };
-
-        // WGPU 0.11+ support force fallback (if HW implementation not supported), set it to true or false (optional).
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        }))
-            .unwrap();
-
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                features: wgpu::Features::default(),
-                limits: wgpu::Limits::default(),
-                label: None,
-            },
-            None,
-        ))
-            .unwrap();
-
-        let size = window.inner_size();
-        let surface_format = surface.get_preferred_format(&adapter).unwrap();
-        let mut surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width as u32,
-            height: size.height as u32,
-            present_mode: wgpu::PresentMode::Fifo,
-        };
-        surface.configure(&device, &surface_config);
-
-        let repaint_signal = std::sync::Arc::new(ExampleRepaintSignal(std::sync::Mutex::new(
-            event_loop.create_proxy(),
-        )));
-
-        // We use the egui_winit_platform crate as the platform.
-        let mut platform = Platform::new(PlatformDescriptor {
-            physical_width: size.width as u32,
-            physical_height: size.height as u32,
-            scale_factor: window.scale_factor(),
-            font_definitions: FontDefinitions::default(),
-            style: Default::default(),
-        });
-
-        // We use the egui_wgpu_backend crate as the render backend.
-        let mut egui_rpass = RenderPass::new(&device, surface_format, 1);
-
-        // Display the demo application that ships with egui.
-        let mut demo_app = egui_demo_lib::WrapApp::default();
-
-        let start_time = Instant::now();
-        let mut previous_frame_time = None;
-        event_loop.run(move |event, _, control_flow| {
-            // Pass the winit events to the platform integration.
-            platform.handle_event(&event);
-
-            match event {
-                RedrawRequested(..) => {
-                    platform.update_time(start_time.elapsed().as_secs_f64());
-
-                    let output_frame = match surface.get_current_texture() {
-                        Ok(frame) => frame,
-                        Err(wgpu::SurfaceError::Outdated) => {
-                            // This error occurs when the app is minimized on Windows.
-                            // Silently return here to prevent spamming the console with:
-                            // "The underlying surface has changed, and therefore the swap chain must be updated"
-                            return;
-                        }
-                        Err(e) => {
-                            eprintln!("Dropped frame with error: {}", e);
-                            return;
-                        }
-                    };
-                    let output_view = output_frame
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
-
-                    // Begin to draw the UI frame.
-                    let egui_start = Instant::now();
-                    platform.begin_frame();
-                    let app_output = epi::backend::AppOutput::default();
-
-                    let mut frame =  epi::Frame::new(epi::backend::FrameData {
-                        info: epi::IntegrationInfo {
-                            name: "egui_example",
-                            web_info: None,
-                            cpu_usage: previous_frame_time,
-                            native_pixels_per_point: Some(window.scale_factor() as _),
-                            prefer_dark_mode: None,
-                        },
-                        output: app_output,
-                        repaint_signal: repaint_signal.clone(),
-                    });
-
-                    // Draw the demo application.
-                    demo_app.update(&platform.context(), &mut frame);
-
-                    // End the UI frame. We could now handle the output and draw the UI with the backend.
-                    let (_output, paint_commands) = platform.end_frame(Some(&window));
-                    let paint_jobs = platform.context().tessellate(paint_commands);
-
-                    let frame_time = (Instant::now() - egui_start).as_secs_f64() as f32;
-                    previous_frame_time = Some(frame_time);
-
-                    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("encoder"),
-                    });
-
-                    // Upload all resources for the GPU.
-                    let screen_descriptor = ScreenDescriptor {
-                        physical_width: surface_config.width,
-                        physical_height: surface_config.height,
-                        scale_factor: window.scale_factor() as f32,
-                    };
-                    egui_rpass.update_texture(&device, &queue, &platform.context().font_image());
-                    egui_rpass.update_user_textures(&device, &queue);
-                    egui_rpass.update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
-
-                    // Record all render passes.
-                    egui_rpass
-                        .execute(
-                            &mut encoder,
-                            &output_view,
-                            &paint_jobs,
-                            &screen_descriptor,
-                            Some(wgpu::Color::BLACK),
-                        )
-                        .unwrap();
-                    // Submit the commands.
-                    queue.submit(iter::once(encoder.finish()));
-
-                    // Redraw egui
-                    output_frame.present();
-
-                    // Suppport reactive on windows only, but not on linux.
-                    // if _output.needs_repaint {
-                    //     *control_flow = ControlFlow::Poll;
-                    // } else {
-                    //     *control_flow = ControlFlow::Wait;
-                    // }
-                }
-                MainEventsCleared | UserEvent(Event::RequestRedraw) => {
-                    window.request_redraw();
-                }
-                WindowEvent { event, .. } => match event {
-                    winit::event::WindowEvent::Resized(size) => {
-                        // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
-                        // See: https://github.com/rust-windowing/winit/issues/208
-                        // This solves an issue where the app would panic when minimizing on Windows.
-                        if size.width > 0 && size.height > 0 {
-                            surface_config.width = size.width;
-                            surface_config.height = size.height;
-                            surface.configure(&device, &surface_config);
-                        }
-                    }
-                    winit::event::WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    _ => {}
-                },
-                _ => (),
-            }
-        });
-    */
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// egui_sdl2_gl:
-
-
-/*
-
-pub struct EguiStateHandler {
-    pub fused_cursor: FusedCursor,
-    pub pointer_pos: Pos2,
-    pub input: RawInput,
-    pub modifiers: Modifiers,
-    pub native_pixels_per_point: f32,
-}
-
-pub fn with_sdl2(
-    window: &sdl2::video::Window,
-    shader_ver: ShaderVersion,
-    scale: DpiScaling,
-) -> (EguiStateHandler) {
-    let scale = match scale {
-        DpiScaling::Default => 96.0 / window.subsystem().display_dpi(0).unwrap().0,
-        DpiScaling::Custom(custom) => {
-            (96.0 / window.subsystem().display_dpi(0).unwrap().0) * custom
-        }
-    };
-    let painter = painter::Painter::new(window, scale, shader_ver);
-    EguiStateHandler::new(painter)
-}
-
-impl EguiStateHandler {
-    pub fn new(painter: Painter) -> (Painter, EguiStateHandler) {
-        let native_pixels_per_point = painter.pixels_per_point;
-        let _self = EguiStateHandler {
-            fused_cursor: FusedCursor::default(),
-            pointer_pos: Pos2::new(0f32, 0f32),
-            input: egui::RawInput {
-                screen_rect: Some(painter.screen_rect),
-                pixels_per_point: Some(native_pixels_per_point),
-                ..Default::default()
-            },
-            modifiers: Modifiers::default(),
-            native_pixels_per_point,
-        };
-        (painter, _self)
-    }
-
-    pub fn process_input(
-        &mut self,
-        window: &sdl2::video::Window,
-        event: sdl2::event::Event,
-        painter: &mut Painter,
-    ) {
-        input_to_egui(window, event, painter, self);
-    }
-
-    pub fn process_output(&mut self, window: &sdl2::video::Window, egui_output: &egui::Output) {
+    pub fn process_output(&mut self, window: &Window, egui_output: &egui::PlatformOutput) {
         if !egui_output.copied_text.is_empty() {
             let copied_text = egui_output.copied_text.clone();
             {
@@ -845,265 +518,113 @@ impl EguiStateHandler {
                 }
             }
         }
-        translate_cursor(&mut self.fused_cursor, egui_output.cursor_icon);
+        EguiSDL2State::translate_cursor(&mut self.fused_cursor, egui_output.cursor_icon);
+    }
+
+    fn translate_cursor(fused: &mut FusedCursor, cursor_icon: egui::CursorIcon) {
+        let tmp_icon = match cursor_icon {
+            egui::CursorIcon::Crosshair => SystemCursor::Crosshair,
+            egui::CursorIcon::Default => SystemCursor::Arrow,
+            egui::CursorIcon::Grab => SystemCursor::Hand,
+            egui::CursorIcon::Grabbing => SystemCursor::SizeAll,
+            egui::CursorIcon::Move => SystemCursor::SizeAll,
+            egui::CursorIcon::PointingHand => SystemCursor::Hand,
+            egui::CursorIcon::ResizeHorizontal => SystemCursor::SizeWE,
+            egui::CursorIcon::ResizeNeSw => SystemCursor::SizeNESW,
+            egui::CursorIcon::ResizeNwSe => SystemCursor::SizeNWSE,
+            egui::CursorIcon::ResizeVertical => SystemCursor::SizeNS,
+            egui::CursorIcon::Text => SystemCursor::IBeam,
+            egui::CursorIcon::NotAllowed | egui::CursorIcon::NoDrop => SystemCursor::No,
+            egui::CursorIcon::Wait => SystemCursor::Wait,
+            //There doesn't seem to be a suitable SDL equivalent...
+            _ => SystemCursor::Arrow,
+        };
+
+        if tmp_icon != fused.icon {
+            fused.cursor = Cursor::from_system(tmp_icon).unwrap();
+            fused.icon = tmp_icon;
+            fused.cursor.set();
+        }
     }
 }
 
-pub fn input_to_egui(
-    window: &sdl2::video::Window,
-    event: sdl2::event::Event,
-    painter: &mut Painter,
-    state: &mut EguiStateHandler,
-) {
-    use sdl2::event::Event::*;
+fn main() {
 
-    let pixels_per_point = painter.pixels_per_point;
-    if event.get_window_id() != Some(window.id()) {
-        return;
-    }
-    match event {
-        // handle when window Resized and SizeChanged.
-        Window { win_event, .. } => match win_event {
-            WindowEvent::Resized(_, _) | sdl2::event::WindowEvent::SizeChanged(_, _) => {
-                painter.update_screen_rect(window.drawable_size());
-                state.input.screen_rect = Some(painter.screen_rect);
-            }
-            _ => (),
-        },
+    let mut sys = init_sdl(INITIAL_WIDTH, INITIAL_HEIGHT);
+    let mut event_pump = sys.sdl_context.event_pump().expect("Cannot create SDL2 event pump");
 
-        //MouseButonLeft pressed is the only one needed by egui
-        MouseButtonDown { mouse_btn, .. } => {
-            let mouse_btn = match mouse_btn {
-                MouseButton::Left => Some(egui::PointerButton::Primary),
-                MouseButton::Middle => Some(egui::PointerButton::Middle),
-                MouseButton::Right => Some(egui::PointerButton::Secondary),
-                _ => None,
-            };
-            if let Some(pressed) = mouse_btn {
-                state.input.events.push(egui::Event::PointerButton {
-                    pos: state.pointer_pos,
-                    button: pressed,
-                    pressed: true,
-                    modifiers: state.modifiers,
-                });
-            }
-        }
+    let mut egui_ctx = egui::Context::default();
+    let mut egui_rpass = Arc::new(RwLock::new(RenderPass::new(&sys.device, sys.surface_config.format, 1)));
 
-        //MouseButonLeft pressed is the only one needed by egui
-        MouseButtonUp { mouse_btn, .. } => {
-            let mouse_btn = match mouse_btn {
-                MouseButton::Left => Some(egui::PointerButton::Primary),
-                MouseButton::Middle => Some(egui::PointerButton::Middle),
-                MouseButton::Right => Some(egui::PointerButton::Secondary),
-                _ => None,
-            };
-            if let Some(released) = mouse_btn {
-                state.input.events.push(egui::Event::PointerButton {
-                    pos: state.pointer_pos,
-                    button: released,
-                    pressed: false,
-                    modifiers: state.modifiers,
-                });
-            }
-        }
+    let ddpi = sys.sdl_window.subsystem().display_dpi(0).unwrap().0;
+    let mut egui_sdl2_state = EguiSDL2State::new(INITIAL_WIDTH, INITIAL_HEIGHT, 96.0, ddpi, 1.0);
 
-        MouseMotion { x, y, .. } => {
-            state.pointer_pos = pos2(x as f32 / pixels_per_point, y as f32 / pixels_per_point);
-            state
-                .input
-                .events
-                .push(egui::Event::PointerMoved(state.pointer_pos));
-        }
+    let mut checkbox1_checked = false;
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match &event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => {
+                    break 'running;
+                }
+                Event::Window {
+                    window_id,
+                    win_event: WindowEvent::SizeChanged(width, height) | WindowEvent::Resized(width, height),
+                    ..
+                } => {
+                    if window_id.clone() == sys.sdl_window.id() {
+                        let config = &mut sys.surface_config;
+                        config.width = *width as u32;
+                        config.height = *height as u32;
+                        sys.surface.configure(&sys.device, &config);
+                    }
+                }
 
-        KeyUp {
-            keycode, keymod, ..
-        } => {
-            let key_code = match keycode {
-                Some(key_code) => key_code,
-                _ => return,
-            };
-            let key = match translate_virtual_key_code(key_code) {
-                Some(key) => key,
-                _ => return,
-            };
-            state.modifiers = Modifiers {
-                alt: (keymod & Mod::LALTMOD == Mod::LALTMOD)
-                    || (keymod & Mod::RALTMOD == Mod::RALTMOD),
-                ctrl: (keymod & Mod::LCTRLMOD == Mod::LCTRLMOD)
-                    || (keymod & Mod::RCTRLMOD == Mod::RCTRLMOD),
-                shift: (keymod & Mod::LSHIFTMOD == Mod::LSHIFTMOD)
-                    || (keymod & Mod::RSHIFTMOD == Mod::RSHIFTMOD),
-                mac_cmd: keymod & Mod::LGUIMOD == Mod::LGUIMOD,
 
-                //TOD: Test on both windows and mac
-                command: (keymod & Mod::LCTRLMOD == Mod::LCTRLMOD)
-                    || (keymod & Mod::LGUIMOD == Mod::LGUIMOD),
-            };
-
-            state.input.events.push(Event::Key {
-                key,
-                pressed: false,
-                modifiers: state.modifiers,
-            });
-        }
-
-        KeyDown {
-            keycode, keymod, ..
-        } => {
-            let key_code = match keycode {
-                Some(key_code) => key_code,
-                _ => return,
-            };
-
-            let key = match translate_virtual_key_code(key_code) {
-                Some(key) => key,
-                _ => return,
-            };
-            state.modifiers = Modifiers {
-                alt: (keymod & Mod::LALTMOD == Mod::LALTMOD)
-                    || (keymod & Mod::RALTMOD == Mod::RALTMOD),
-                ctrl: (keymod & Mod::LCTRLMOD == Mod::LCTRLMOD)
-                    || (keymod & Mod::RCTRLMOD == Mod::RCTRLMOD),
-                shift: (keymod & Mod::LSHIFTMOD == Mod::LSHIFTMOD)
-                    || (keymod & Mod::RSHIFTMOD == Mod::RSHIFTMOD),
-                mac_cmd: keymod & Mod::LGUIMOD == Mod::LGUIMOD,
-
-                //TOD: Test on both windows and mac
-                command: (keymod & Mod::LCTRLMOD == Mod::LCTRLMOD)
-                    || (keymod & Mod::LGUIMOD == Mod::LGUIMOD),
-            };
-
-            state.input.events.push(Event::Key {
-                key,
-                pressed: true,
-                modifiers: state.modifiers,
-            });
-
-            if state.modifiers.command && key == Key::C {
-                // println!("copy event");
-                state.input.events.push(Event::Copy);
-            } else if state.modifiers.command && key == Key::X {
-                // println!("cut event");
-                state.input.events.push(Event::Cut);
-            } else if state.modifiers.command && key == Key::V {
-                // println!("paste");
-                if let Ok(contents) = window.subsystem().clipboard().clipboard_text() {
-                    state.input.events.push(Event::Text(contents));
+                e => { // dbg!(e); }
                 }
             }
+            input_to_egui(&sys.sdl_window, &event, &mut egui_sdl2_state)
         }
 
-        TextInput { text, .. } => {
-            state.input.events.push(Event::Text(text));
-        }
+        // println!("num e before: {}", egui_sdl2_state.raw_input.events.len());
+        // let raw_clone = ;
+        egui_ctx.begin_frame(egui_sdl2_state.raw_input.take());
+        // println!("num e after: {}", egui_sdl2_state.raw_input.events.len());
 
-        MouseWheel { x, y, .. } => {
-            let delta = vec2(x as f32 * 8.0, y as f32 * 8.0);
-            let sdl = window.subsystem().sdl();
-            if sdl.keyboard().mod_state() & Mod::LCTRLMOD == Mod::LCTRLMOD
-                || sdl.keyboard().mod_state() & Mod::RCTRLMOD == Mod::RCTRLMOD
-            {
-                state.input.zoom_delta *= (delta.y / 125.0).exp();
-            } else {
-                state.input.scroll_delta = delta;
+        egui::Window::new("Settings").resizable(true).vscroll(true).show(&egui_ctx, |ui| {
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+            ui.label("Welcome!");
+
+            if ui.button("HEllo").clicked() {
+                println!("yo!")
             }
-        }
+            ui.checkbox(&mut checkbox1_checked, "checkbox1");
+            ui.end_row();
+        });
 
-        _ => {
-            //dbg!(event);
+        let full_output: FullOutput = egui_ctx.end_frame();
+        egui_sdl2_state.process_output(&sys.sdl_window, &full_output.platform_output);
+        let tris = egui_ctx.tessellate(full_output.shapes);
+        if (full_output.needs_repaint) {
+            paint_and_update_textures(&sys, egui_rpass.clone(), egui_sdl2_state.dpi_scaling, Rgba::from_rgb(0.0,0.0,0.0), &tris, &full_output.textures_delta)
         }
     }
 }
-
-pub fn translate_virtual_key_code(key: sdl2::keyboard::Keycode) -> Option<egui::Key> {
-    use Keycode::*;
-
-    Some(match key {
-        Left => Key::ArrowLeft,
-        Up => Key::ArrowUp,
-        Right => Key::ArrowRight,
-        Down => Key::ArrowDown,
-
-        Escape => Key::Escape,
-        Tab => Key::Tab,
-        Backspace => Key::Backspace,
-        Space => Key::Space,
-        Return => Key::Enter,
-
-        Insert => Key::Insert,
-        Home => Key::Home,
-        Delete => Key::Delete,
-        End => Key::End,
-        PageDown => Key::PageDown,
-        PageUp => Key::PageUp,
-
-        Kp0 | Num0 => Key::Num0,
-        Kp1 | Num1 => Key::Num1,
-        Kp2 | Num2 => Key::Num2,
-        Kp3 | Num3 => Key::Num3,
-        Kp4 | Num4 => Key::Num4,
-        Kp5 | Num5 => Key::Num5,
-        Kp6 | Num6 => Key::Num6,
-        Kp7 | Num7 => Key::Num7,
-        Kp8 | Num8 => Key::Num8,
-        Kp9 | Num9 => Key::Num9,
-
-        A => Key::A,
-        B => Key::B,
-        C => Key::C,
-        D => Key::D,
-        E => Key::E,
-        F => Key::F,
-        G => Key::G,
-        H => Key::H,
-        I => Key::I,
-        J => Key::J,
-        K => Key::K,
-        L => Key::L,
-        M => Key::M,
-        N => Key::N,
-        O => Key::O,
-        P => Key::P,
-        Q => Key::Q,
-        R => Key::R,
-        S => Key::S,
-        T => Key::T,
-        U => Key::U,
-        V => Key::V,
-        W => Key::W,
-        X => Key::X,
-        Y => Key::Y,
-        Z => Key::Z,
-
-        _ => {
-            return None;
-        }
-    })
-}
-
-pub fn translate_cursor(fused: &mut FusedCursor, cursor_icon: egui::CursorIcon) {
-    let tmp_icon = match cursor_icon {
-        CursorIcon::Crosshair => SystemCursor::Crosshair,
-        CursorIcon::Default => SystemCursor::Arrow,
-        CursorIcon::Grab => SystemCursor::Hand,
-        CursorIcon::Grabbing => SystemCursor::SizeAll,
-        CursorIcon::Move => SystemCursor::SizeAll,
-        CursorIcon::PointingHand => SystemCursor::Hand,
-        CursorIcon::ResizeHorizontal => SystemCursor::SizeWE,
-        CursorIcon::ResizeNeSw => SystemCursor::SizeNESW,
-        CursorIcon::ResizeNwSe => SystemCursor::SizeNWSE,
-        CursorIcon::ResizeVertical => SystemCursor::SizeNS,
-        CursorIcon::Text => SystemCursor::IBeam,
-        CursorIcon::NotAllowed | CursorIcon::NoDrop => SystemCursor::No,
-        CursorIcon::Wait => SystemCursor::Wait,
-        //There doesn't seem to be a suitable SDL equivalent...
-        _ => SystemCursor::Arrow,
-    };
-
-    if tmp_icon != fused.icon {
-        fused.cursor = Cursor::from_system(tmp_icon).unwrap();
-        fused.icon = tmp_icon;
-        fused.cursor.set();
-    }
-}
-*/
